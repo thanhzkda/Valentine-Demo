@@ -6,7 +6,6 @@ class App {
             game: document.getElementById('game-screen'),
             transition: document.getElementById('transition-screen'),
             heart: document.getElementById('heart-screen'),
-            gallery: document.getElementById('gallery-screen')
         };
 
         this.init();
@@ -23,30 +22,6 @@ class App {
         unlockBtn.addEventListener('click', () => {
             this.showHeartScene();
         });
-
-        // Legacy camera permission buttons (for gallery fallback)
-        const enableCameraBtn = document.getElementById('enable-camera-btn');
-        const skipCameraBtn = document.getElementById('skip-camera-btn');
-
-        if (enableCameraBtn) {
-            enableCameraBtn.addEventListener('click', () => {
-                this.enableGestureControl();
-            });
-        }
-
-        if (skipCameraBtn) {
-            skipCameraBtn.addEventListener('click', () => {
-                this.skipGestureControl();
-            });
-        }
-
-        // Gesture guide close button
-        const closeGuideBtn = document.getElementById('close-guide-btn');
-        if (closeGuideBtn) {
-            closeGuideBtn.addEventListener('click', () => {
-                this.closeGestureGuide();
-            });
-        }
 
         // Show initial screen
         this.showScreen('game');
@@ -87,44 +62,6 @@ class App {
             audio.volume = 0.5;
             audio.play().catch(e => console.log('Audio autoplay prevented:', e));
         }
-    }
-
-    // Legacy gallery methods (kept as fallback)
-    showGallery() {
-        this.showScreen('gallery');
-        initGallery();
-        const cameraNotice = document.getElementById('camera-notice');
-        if (cameraNotice) cameraNotice.classList.remove('hidden');
-    }
-
-    async enableGestureControl() {
-        const cameraNotice = document.getElementById('camera-notice');
-        if (cameraNotice) cameraNotice.classList.add('hidden');
-
-        if (!gestureRecognizer) {
-            gestureRecognizer = new GestureRecognizer(gallery);
-        }
-
-        const success = await gestureRecognizer.initialize();
-        if (success) {
-            setTimeout(() => this.showGestureGuide(), 1000);
-        }
-    }
-
-    skipGestureControl() {
-        const cameraNotice = document.getElementById('camera-notice');
-        if (cameraNotice) cameraNotice.classList.add('hidden');
-        alert('Keyboard Controls:\n\n← Left Arrow: Previous photo\n→ Right Arrow: Next photo\nSpace: Play/Pause video\n\nEnjoy the memories! ❤️');
-    }
-
-    showGestureGuide() {
-        const guide = document.getElementById('gesture-guide');
-        if (guide) guide.classList.remove('hidden');
-    }
-
-    closeGestureGuide() {
-        const guide = document.getElementById('gesture-guide');
-        if (guide) guide.classList.add('hidden');
     }
 
     addSparkles() {

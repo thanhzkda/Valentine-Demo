@@ -29,7 +29,6 @@ const CONFIG = {
 
 const STATE = {
     mode: 'HEART',
-    focusIndex: -1,
     focusTarget: null,
     hand: { detected: false, x: 0, y: 0 },
     rotation: { x: 0, y: 0 },
@@ -549,7 +548,6 @@ function addPhotoToScene(texture, mediaItem) {
     updatePhotoLayout();
 }
 
-// ─── LOAD MEDIA FROM window.mediaData ─────────────────────────
 // ─── LOAD MEDIA FROM window.mediaData ─────────────────────────
 function loadMediaPhotos() {
     if (!window.mediaData || window.mediaData.length === 0) return;
