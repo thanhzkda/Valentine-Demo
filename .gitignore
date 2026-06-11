@@ -1,0 +1,11 @@
+# Personal media — add your own files locally, they won't be committed
+media/photos/*
+media/videos/*
+!media/photos/.gitkeep
+!media/videos/.gitkeep
+music.mp3
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
