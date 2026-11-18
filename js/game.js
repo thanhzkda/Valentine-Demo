@@ -4,6 +4,7 @@ class TicTacToe {
         this.board = ['', '', '', '', '', '', '', '', ''];
         this.currentPlayer = 'heart'; // Player is hearts, computer is X
         this.gameActive = true;
+        this.pendingTimer = null;
         this.cells = document.querySelectorAll('.cell');
         this.statusDisplay = document.getElementById('game-status');
         this.resetBtn = document.getElementById('reset-btn');
@@ -30,14 +31,15 @@ class TicTacToe {
         const clickedCell = event.target;
         const clickedCellIndex = parseInt(clickedCell.getAttribute('data-index'));
 
-        if (this.board[clickedCellIndex] !== '' || !this.gameActive) {
+        // Ignore clicks while the computer is "thinking"
+        if (this.board[clickedCellIndex] !== '' || !this.gameActive || this.currentPlayer !== 'heart') {
             return;
         }
 
         this.makeMove(clickedCellIndex, 'heart');
 
         if (this.gameActive) {
-            setTimeout(() => this.computerMove(), 500);
+            this.pendingTimer = setTimeout(() => this.computerMove(), 500);
         }
     }
 
@@ -62,7 +64,7 @@ class TicTacToe {
 
     findBestMove() {
         // First, try to win
-        for (let i = 0; i < 8; i++) {
+        for (let i = 0; i < 9; i++) {
             if (this.board[i] === '') {
                 this.board[i] = 'x';
                 if (this.checkWinningMove('x')) {
@@ -144,7 +146,7 @@ class TicTacToe {
                 this.gameActive = false;
 
                 // Trigger transition to gallery after celebration
-                setTimeout(() => {
+                this.pendingTimer = setTimeout(() => {
                     this.triggerVictory();
                 }, 2000);
             } else {
@@ -174,6 +176,8 @@ class TicTacToe {
     }
 
     resetGame() {
+        // Cancel a queued computer move or victory transition
+        clearTimeout(this.pendingTimer);
         this.board = ['', '', '', '', '', '', '', '', ''];
         this.gameActive = true;
         this.currentPlayer = 'heart';

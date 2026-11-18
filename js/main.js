@@ -52,8 +52,11 @@ class App {
         this.showScreen('heart');
 
         // Initialize the 3D heart scene (defined in heart-scene.js)
+        // On slow connections the module may still be loading; it checks this flag when ready
         if (typeof window.initHeartScene === 'function') {
             window.initHeartScene();
+        } else {
+            window.heartScenePending = true;
         }
 
         // Play background music if available

@@ -4,6 +4,8 @@
 
 **A tic-tac-toe game that hides two years of love inside it.**
 
+### [▶ Open the live demo](https://thanhzkda.github.io/Valentine-Demo/)
+
 [![Three.js](https://img.shields.io/badge/Three.js-v0.160-black?style=for-the-badge&logo=three.js)](https://threejs.org/)
 [![MediaPipe](https://img.shields.io/badge/MediaPipe-v0.10.3-blue?style=for-the-badge)](https://mediapipe.dev/)
 [![JavaScript](https://img.shields.io/badge/JavaScript-ES6%2B-yellow?style=for-the-badge&logo=javascript)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
@@ -34,7 +36,7 @@ Now I'm putting this out there so you can make one too. Swap the photos, write y
 
 **Then the heart appears.** Your photos orbit a 3D parametric heart rendered with Three.js — bloom lighting, particle dust, the whole thing. It looks ridiculous in the best way.
 
-**Then you can control it with your hands.** Point your webcam at yourself and:
+**Then you can control it with your hands.** Click **Enable Gesture**, allow the camera, and:
 - **Open your palm** → photos scatter out into space ✨
 - **Make a fist** → the heart reassembles 💕
 - **Pinch** → zoom into a random memory 🔍
@@ -122,7 +124,7 @@ gh repo create my-valentine --public --source=. --push
 npx vercel --prod
 ```
 
-> **One thing:** hand gesture control needs HTTPS to access the camera. All three options above give you HTTPS automatically. If you're testing locally, use `npx serve` — it handles this too.
+> **One thing:** hand gesture control needs HTTPS to access the camera. All three options above give you HTTPS automatically. Browsers also allow the camera on `http://localhost`, so both local server commands work. Camera video stays in the browser and is never uploaded.
 
 ---
 

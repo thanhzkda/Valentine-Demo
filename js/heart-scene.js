@@ -6,9 +6,11 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 
 // ─── CONFIG ───────────────────────────────────────────────────
+const isSmallScreen = Math.min(window.innerWidth, window.innerHeight) < 768;
+const MAX_FRAME_DELTA = 0.05; // Keeps animation stable when the frame rate drops
+
 const CONFIG = {
     colors: {
         bg: 0x050208,
@@ -19,10 +21,10 @@ const CONFIG = {
         softWhite: 0xffeef2,
     },
     particles: {
-        count: 5000,
-        dustCount: 2000,
-        sparkleCount: 1000,
-        heartScale: 7,
+        count: isSmallScreen ? 2500 : 5000,
+        dustCount: isSmallScreen ? 800 : 2000,
+        sparkleCount: isSmallScreen ? 500 : 1000,
+        heartScale: 10,
     },
     camera: { z: 50 },
 };
@@ -46,7 +48,12 @@ let sparkleSystem;
 let raycaster = new THREE.Raycaster();
 let mouse = new THREE.Vector2();
 let isCameraRunning = false;
+let isCameraStarting = false;
 let animationId = null;
+let instancedMeshes = [];
+let qualityFrames = 0;
+let qualityChecked = false;
+const tempScale = new THREE.Vector3();
 
 // ─── PUBLIC API (called from main.js) ─────────────────────────
 window.initHeartScene = function () {
@@ -119,9 +126,6 @@ function init() {
     setupEvents();
     setupTouchAndClick();
 
-    // Auto-start camera if supported
-    setTimeout(() => initMediaPipe(), 1000);
-
     // Hide loader
     const loader = document.getElementById('heart-loader');
     if (loader) {
@@ -144,7 +148,7 @@ function initThree() {
 
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.toneMapping = THREE.ReinhardToneMapping;
     renderer.toneMappingExposure = 2.5;
     container.appendChild(renderer.domElement);
@@ -269,8 +273,8 @@ class Particle {
             const currentPos = this.startVector.clone().applyAxisAngle(this.orbitAxis, this.orbitAngle);
             this.posHeart.copy(currentPos);
 
-            // Look at center (heart)
-            this.mesh.lookAt(0, 0, 0);
+            // Keep the picture side facing the viewer
+            this.mesh.lookAt(camera.position);
         }
         // ───────────────────────────
 
@@ -308,17 +312,41 @@ class Particle {
             s = this.baseScale * (0.8 + 0.4 * Math.sin(clock.elapsedTime * 4 + this.mesh.id));
             if (mode === 'HEART') s = 0;
         } else if (mode === 'SCATTER' && this.type === 'PHOTO') {
-            s = this.baseScale * 2.5;
+            s = this.baseScale * 1.5;
         } else if (mode === 'FOCUS') {
             s = this.mesh === focusTargetMesh ? 4.5 : this.baseScale * 0.8;
         }
-        this.mesh.scale.lerp(new THREE.Vector3(s, s, s), 4 * dt);
+        this.mesh.scale.lerp(tempScale.set(s, s, s), 4 * dt);
+
+        // Instanced particles write their transform into the shared mesh
+        if (this.instance) {
+            this.mesh.updateMatrix();
+            this.instance.setMatrixAt(this.instanceIndex, this.mesh.matrix);
+        }
+    }
+}
+
+// Draws many copies of one shape in a single GPU call
+function createInstancedParticles(geometry, material, count, type, isDust, setup) {
+    const instance = new THREE.InstancedMesh(geometry, material, count);
+    instance.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    instance.frustumCulled = false;
+    mainGroup.add(instance);
+    instancedMeshes.push(instance);
+
+    for (let i = 0; i < count; i++) {
+        const transform = new THREE.Object3D();
+        setup(transform);
+        const particle = new Particle(transform, type, isDust);
+        particle.instance = instance;
+        particle.instanceIndex = i;
+        particleSystem.push(particle);
     }
 }
 
 // ─── CREATE HEART PARTICLES ───────────────────────────────────
 function createHeartParticles() {
-    const sphereGeo = new THREE.SphereGeometry(0.4, 16, 16);
+    const sphereGeo = new THREE.SphereGeometry(0.4, 10, 8);
     const boxGeo = new THREE.BoxGeometry(0.45, 0.45, 0.45);
 
     // Pink/rose materials
@@ -354,33 +382,21 @@ function createHeartParticles() {
         emissiveIntensity: 0.2,
     });
 
-    for (let i = 0; i < CONFIG.particles.count; i++) {
-        const rand = Math.random();
-        let mesh, type;
+    const groups = [
+        { type: 'PINK_SPHERE', geometry: sphereGeo, material: pinkMat, share: 0.35 },
+        { type: 'PINK_BOX', geometry: boxGeo, material: pinkMat, share: 0.25 },
+        { type: 'DEEP_PINK', geometry: sphereGeo, material: deepPinkMat, share: 0.18 },
+        { type: 'GOLD', geometry: boxGeo, material: goldMat, share: 0.12 },
+        { type: 'WHITE', geometry: sphereGeo, material: whiteMat, share: 0.10 },
+    ];
 
-        if (rand < 0.35) {
-            mesh = new THREE.Mesh(sphereGeo, pinkMat);
-            type = 'PINK_SPHERE';
-        } else if (rand < 0.60) {
-            mesh = new THREE.Mesh(boxGeo, pinkMat);
-            type = 'PINK_BOX';
-        } else if (rand < 0.78) {
-            mesh = new THREE.Mesh(sphereGeo, deepPinkMat);
-            type = 'DEEP_PINK';
-        } else if (rand < 0.90) {
-            mesh = new THREE.Mesh(boxGeo, goldMat);
-            type = 'GOLD';
-        } else {
-            mesh = new THREE.Mesh(sphereGeo, whiteMat);
-            type = 'WHITE';
-        }
-
-        const s = 0.3 + Math.random() * 0.4;
-        mesh.scale.set(s, s, s);
-        mesh.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
-        mainGroup.add(mesh);
-        particleSystem.push(new Particle(mesh, type, false));
-    }
+    groups.forEach(({ type, geometry, material, share }) => {
+        const count = Math.round(CONFIG.particles.count * share);
+        createInstancedParticles(geometry, material, count, type, false, (transform) => {
+            transform.scale.setScalar(0.3 + Math.random() * 0.4);
+            transform.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+        });
+    });
 
     mainGroup.add(photoMeshGroup);
 }
@@ -393,12 +409,9 @@ function createDust() {
         transparent: true,
         opacity: 0.7,
     });
-    for (let i = 0; i < CONFIG.particles.dustCount; i++) {
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.scale.setScalar(0.4 + Math.random());
-        mainGroup.add(mesh);
-        particleSystem.push(new Particle(mesh, 'DUST', true));
-    }
+    createInstancedParticles(geo, mat, CONFIG.particles.dustCount, 'DUST', true, (transform) => {
+        transform.scale.setScalar(0.4 + Math.random());
+    });
 }
 
 // ─── SPARKLE / SNOW REPLACEMENT ───────────────────────────────
@@ -537,7 +550,7 @@ function addPhotoToScene(texture, mediaItem) {
     group.add(photo);
     frame.scale.set(width / 1.2, height / 1.2, 1);
 
-    const s = 0.8;
+    const s = 1.8;
     group.scale.set(s, s, s);
 
     // Store media item reference for click handler
@@ -606,6 +619,20 @@ function setupTouchAndClick() {
     setupClickEventsOnly();
 }
 
+// Helper: find the photo under the current `mouse` position
+function findPhotoUnderPointer() {
+    raycaster.setFromCamera(mouse, camera);
+
+    const intersects = raycaster.intersectObjects(photoMeshGroup.children, true);
+    if (intersects.length === 0) return null;
+
+    let obj = intersects[0].object;
+    while (obj.parent && obj.parent !== photoMeshGroup) {
+        obj = obj.parent;
+    }
+    return particleSystem.find(p => p.mesh === obj && p.type === 'PHOTO') || null;
+}
+
 // Helper: Raycast from normalized coord (-1 to 1)
 function attemptClickFromGesture(ndcX, ndcY) {
     // Note: MediaPipe Y is top-down (0->1), so ndcY is -1(top) to 1(bottom).
@@ -616,22 +643,7 @@ function attemptClickFromGesture(ndcX, ndcY) {
     mouse.x = -ndcX;
     mouse.y = -ndcY;
 
-    raycaster.setFromCamera(mouse, camera);
-
-    const intersects = raycaster.intersectObjects(mainGroup.children, true);
-    let clickedPhoto = null;
-
-    for (let hit of intersects) {
-        let obj = hit.object;
-        while (obj.parent && obj.parent !== mainGroup && obj.parent !== photoMeshGroup) {
-            obj = obj.parent;
-        }
-        const particle = particleSystem.find(p => p.mesh === obj && p.type === 'PHOTO');
-        if (particle) {
-            clickedPhoto = particle;
-            break;
-        }
-    }
+    const clickedPhoto = findPhotoUnderPointer();
 
     if (clickedPhoto) {
         const mediaItem = clickedPhoto.mesh.userData.mediaItem;
@@ -653,22 +665,8 @@ function setupClickEventsOnly() {
 
         mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
         mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-        raycaster.setFromCamera(mouse, camera);
 
-        const intersects = raycaster.intersectObjects(mainGroup.children, true);
-        let clickedPhoto = null;
-
-        for (let hit of intersects) {
-            let obj = hit.object;
-            while (obj.parent && obj.parent !== mainGroup && obj.parent !== photoMeshGroup) {
-                obj = obj.parent;
-            }
-            const particle = particleSystem.find(p => p.mesh === obj && p.type === 'PHOTO');
-            if (particle) {
-                clickedPhoto = particle;
-                break;
-            }
-        }
+        const clickedPhoto = findPhotoUnderPointer();
 
         if (clickedPhoto) {
             const mediaItem = clickedPhoto.mesh.userData.mediaItem;
@@ -731,7 +729,8 @@ function setupClickEventsOnly() {
 
 // ─── MEDIAPIPE GESTURE CONTROL ────────────────────────────────
 async function initMediaPipe() {
-    if (isCameraRunning) return;
+    if (isCameraRunning || isCameraStarting) return;
+    isCameraStarting = true;
 
     const camBtn = document.getElementById('heart-cam-btn');
     const debugInfo = document.getElementById('heart-debug-info');
@@ -741,23 +740,27 @@ async function initMediaPipe() {
     video = document.getElementById('heart-webcam');
 
     try {
-        const vision = await FilesetResolver.forVisionTasks(
-            'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
-        );
-        handLandmarker = await HandLandmarker.createFromOptions(vision, {
-            baseOptions: {
-                modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
-                delegate: 'GPU',
-            },
-            runningMode: 'VIDEO',
-            numHands: 1,
-        });
+        // Loaded only when requested, so visitors who skip gestures don't download it
+        if (!handLandmarker) {
+            const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision');
+            const vision = await FilesetResolver.forVisionTasks(
+                'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
+            );
+            handLandmarker = await HandLandmarker.createFromOptions(vision, {
+                baseOptions: {
+                    modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+                    delegate: 'GPU',
+                },
+                runningMode: 'VIDEO',
+                numHands: 1,
+            });
+        }
 
         const stream = await navigator.mediaDevices.getUserMedia({
             video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
         });
         video.srcObject = stream;
-        video.addEventListener('loadeddata', predictWebcam);
+        video.addEventListener('loadeddata', predictWebcam, { once: true });
 
         document.getElementById('heart-webcam-wrapper').style.opacity = '1';
         if (debugInfo) debugInfo.innerText = 'Gesture Active: Show Hand';
@@ -770,10 +773,13 @@ async function initMediaPipe() {
         console.warn('Camera error:', e);
         let msg = 'Camera Error: ' + e.name;
         if (e.name === 'NotAllowedError') msg = '⚠️ Camera blocked! Please allow access in URL bar.';
+        else if (e.name === 'NotFoundError') msg = '⚠️ No camera found. Drag and tap still work!';
         else if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost')
             msg = '⚠️ Security Error: gestures require HTTPS or localhost!';
         if (debugInfo) debugInfo.innerText = msg;
         if (camBtn) camBtn.innerText = '📷 Retry Camera';
+    } finally {
+        isCameraStarting = false;
     }
 }
 
@@ -1046,7 +1052,7 @@ window.prevMedia = prevMedia;
 // ─── ANIMATION LOOP ──────────────────────────────────────────
 function animate() {
     animationId = requestAnimationFrame(animate);
-    const dt = clock.getDelta();
+    const dt = Math.min(clock.getDelta(), MAX_FRAME_DELTA);
 
     // Rotation logic
     if (STATE.hand.detected) {
@@ -1074,10 +1080,28 @@ function animate() {
 
     // Update all particles
     particleSystem.forEach(p => p.update(dt, STATE.mode, STATE.focusTarget));
+    instancedMeshes.forEach(mesh => { mesh.instanceMatrix.needsUpdate = true; });
 
     // Update sparkles
     updateSparkles();
 
     // Render
     composer.render();
+    adaptQuality();
 }
+
+// Lowers render resolution once if the device can't keep up
+function adaptQuality() {
+    if (qualityChecked) return;
+    qualityFrames++;
+    if (clock.elapsedTime < 3) return;
+
+    qualityChecked = true;
+    if (qualityFrames / clock.elapsedTime < 24) {
+        renderer.setPixelRatio(0.75);
+        composer.setPixelRatio(0.75);
+    }
+}
+
+// The gift may have been opened before this module finished loading
+if (window.heartScenePending) window.initHeartScene();
